@@ -1,0 +1,59 @@
+---
+- name: Wait until cluster is ACTIVE before creating nodegroup
+  ansible.builtin.command: >
+    {{ aws_bin }} eks describe-cluster
+    --name {{ eks_cluster_name }}
+    --region {{ eks_region }}
+    --query "cluster.status"
+    --output text
+  register: cluster_status_for_ng
+  until: cluster_status_for_ng.stdout == "ACTIVE"
+  retries: 2000
+  delay: 30
+  changed_when: false
+
+- name: Create new EKS managed nodegroup
+  ansible.builtin.command: >
+    {{ aws_bin }} eks create-nodegroup
+    --cluster-name {{ eks_cluster_name }}
+    --region {{ eks_region }}
+    --nodegroup-name {{ new_nodegroup_name }}
+    --scaling-config minSize={{ new_nodegroup_min_size }},maxSize={{ new_nodegroup_max_size }},desiredSize={{ new_nodegroup_desired_size }}
+    --subnets {{ new_nodegroup_subnets | join(' ') }}
+    --node-role {{ new_node_role_arn }}
+    --ami-type AL2_x86_64
+    --instance-types {{ new_nodegroup_instance_type }}
+    --disk-size 20
+  register: create_ng
+  failed_when: create_ng.rc != 0 and "NodeGroup already exists" not in create_ng.stderr
+
+- name: Show nodegroup creation output
+  ansible.builtin.debug:
+    var: create_ng.stdout
+
+- name: Wait for new nodegroup to be ACTIVE
+  ansible.builtin.command: >
+    {{ aws_bin }} eks describe-nodegroup
+    --cluster-name {{ eks_cluster_name }}
+    --region {{ eks_region }}
+    --nodegroup-name {{ new_nodegroup_name }}
+    --query "nodegroup.status"
+    --output text
+  register: ng_status
+  until: ng_status.stdout == "ACTIVE"
+  retries: 60
+  delay: 30
+  changed_when: false
+
+- name: Wait for new nodes to be Ready
+  ansible.builtin.command: >
+    {{ kubectl_bin }} get nodes -l eks.amazonaws.com/nodegroup={{ new_nodegroup_name }} --no-headers
+  register: new_nodes
+  until: new_nodes.stdout != ""
+  retries: 30
+  delay: 20
+  changed_when: false
+
+- name: Show new nodes
+  ansible.builtin.debug:
+    var: new_nodes.stdout

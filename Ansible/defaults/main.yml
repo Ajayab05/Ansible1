@@ -1,0 +1,5 @@
+---
+kubectl_bin: "kubectl"
+aws_bin: "aws"
+drain_grace_period: 60
+drain_timeout: 600

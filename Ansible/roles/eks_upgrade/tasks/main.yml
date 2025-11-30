@@ -1,0 +1,21 @@
+---
+- name: Prechecks
+  import_tasks: prechecks.yml
+
+- name: Upgrade control plane
+  import_tasks: upgrade_control_plane.yml
+
+- name: Create new nodegroup
+  import_tasks: create_new_nodegroup.yml
+
+- name: Cordon & drain old nodes
+  import_tasks: cordon_drain_old_nodes.yml
+
+- name: Delete old nodegroup
+  import_tasks: delete_old_nodegroup.yml
+
+- name: Upgrade addons
+  import_tasks: upgrade_addons.yml
+
+- name: Postchecks
+  import_tasks: postchecks.yml

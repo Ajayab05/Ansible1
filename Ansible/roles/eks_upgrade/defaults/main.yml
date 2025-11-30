@@ -1,0 +1,3 @@
+---
+aws_bin: "aws"
+kubectl_bin: "kubectl"

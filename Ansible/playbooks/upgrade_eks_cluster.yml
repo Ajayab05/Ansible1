@@ -1,0 +1,10 @@
+---
+- name: Minimal EKS upgrade (precheck + control plane + new nodegroup)
+  hosts: localhost
+  gather_facts: no
+
+  vars_files:
+    - ../group_vars/all.yml
+
+  roles:
+    - eks_upgrade

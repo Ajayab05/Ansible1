@@ -1,0 +1,66 @@
+pipeline {
+    agent any
+
+    parameters {
+        string(name: 'EKS_CLUSTER_NAME',  defaultValue: 'eks-dev1',   description: 'EKS cluster name')
+        string(name: 'EKS_REGION',        defaultValue: 'us-east-2',  description: 'AWS region')
+        string(name: 'EKS_TARGET_VERSION', defaultValue: '1.32',      description: 'Target Kubernetes version')
+        string(name: 'NEW_NODEGROUP_NAME', defaultValue: 'dev-ng-v1218', description: 'New nodegroup name')
+    }
+
+    environment {
+        ANSIBLE_ROLES_PATH = "${WORKSPACE}/ansible-eks-upgrade/roles"
+        AWS_DEFAULT_REGION = "${params.EKS_REGION}"
+    }
+
+    stages {
+        stage('Checkout') {
+            steps {
+                checkout scm
+            }
+        }
+
+        stage('Setup tools') {
+            steps {
+                sh '''
+                  ansible --version || pip install --user ansible
+                  aws --version || echo "WARNING: aws CLI not found in PATH"
+                  kubectl version --client || echo "WARNING: kubectl not found in PATH"
+                '''
+            }
+        }
+
+        stage('Run EKS upgrade playbook') {
+            steps {
+                // If using AWS credentials stored in Jenkins
+                withCredentials([usernamePassword(
+                    credentialsId: 'aws-eks-creds',
+                    usernameVariable: 'AWS_ACCESS_KEY_ID',
+                    passwordVariable: 'AWS_SECRET_ACCESS_KEY'
+                )]) {
+
+                    dir('ansible-eks-upgrade') {
+                        sh '''
+                          echo "Using cluster: ${EKS_CLUSTER_NAME}, region: ${EKS_REGION}, target: ${EKS_TARGET_VERSION}, nodegroup: ${NEW_NODEGROUP_NAME}"
+                          
+                          # Show inventory & playbook for debug
+                          ls -R
+                          
+                          ansible-playbook -i inventory/hosts.yml playbooks/upgrade_eks_cluster.yml \
+                            -e eks_cluster_name=${EKS_CLUSTER_NAME} \
+                            -e eks_region=${EKS_REGION} \
+                            -e eks_target_version=${EKS_TARGET_VERSION} \
+                            -e new_nodegroup_name=${NEW_NODEGROUP_NAME}
+                        '''
+                    }
+                }
+            }
+        }
+    }
+
+    post {
+        always {
+            archiveArtifacts artifacts: 'ansible-eks-upgrade/*.log', allowEmptyArchive: true
+        }
+    }
+}

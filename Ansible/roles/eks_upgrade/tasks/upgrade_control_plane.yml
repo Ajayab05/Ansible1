@@ -1,0 +1,61 @@
+---
+- name: Get current EKS control plane version
+  ansible.builtin.command: >
+    {{ aws_bin }} eks describe-cluster
+    --name {{ eks_cluster_name }}
+    --region {{ eks_region }}
+    --query "cluster.version"
+    --output text
+  register: cp_ver
+  changed_when: false
+
+- name: Show current and target versions
+  ansible.builtin.debug:
+    msg: "Current: {{ cp_ver.stdout }}, Target: {{ eks_target_version }}"
+
+- name: Skip control plane upgrade if already on target version
+  ansible.builtin.debug:
+    msg: "Cluster already on target version {{ eks_target_version }}, skipping upgrade."
+  when: cp_ver.stdout == eks_target_version
+
+- name: Trigger EKS control plane upgrade
+  ansible.builtin.command: >
+    {{ aws_bin }} eks update-cluster-version
+    --name {{ eks_cluster_name }}
+    --region {{ eks_region }}
+    --kubernetes-version {{ eks_target_version }}
+  register: upgrade_cp
+  when: cp_ver.stdout != eks_target_version
+
+- name: Show control plane upgrade output
+  ansible.builtin.debug:
+    var: upgrade_cp.stderr
+  when: cp_ver.stdout != eks_target_version
+
+- name: Wait for EKS control plane to become ACTIVE
+  ansible.builtin.command: >
+    {{ aws_bin }} eks describe-cluster
+    --name {{ eks_cluster_name }}
+    --region {{ eks_region }}
+    --query "cluster.status"
+    --output text
+  register: cp_status
+  until: cp_status.stdout == "ACTIVE"
+  retries: 60
+  delay: 30
+  changed_when: false
+  when: cp_ver.stdout != eks_target_version
+
+- name: Confirm control plane version
+  ansible.builtin.command: >
+    {{ aws_bin }} eks describe-cluster
+    --name {{ eks_cluster_name }}
+    --region {{ eks_region }}
+    --query "cluster.version"
+    --output text
+  register: final_ver
+  changed_when: false
+
+- name: Print new control plane version
+  ansible.builtin.debug:
+    msg: "EKS control plane now at version {{ final_ver.stdout }}"

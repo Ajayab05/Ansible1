@@ -1,0 +1,30 @@
+---
+- name: Show current EKS cluster version
+  ansible.builtin.command: >
+    {{ aws_bin }} eks describe-cluster
+    --name {{ eks_cluster_name }}
+    --region {{ eks_region }}
+    --query "cluster.version"
+    --output text
+  register: current_version
+
+- name: Print current version
+  ansible.builtin.debug:
+    msg: "Current EKS version: {{ current_version.stdout }}"
+
+- name: Update kubeconfig
+  ansible.builtin.command: >
+    {{ aws_bin }} eks update-kubeconfig
+    --name {{ eks_cluster_name }}
+    --region {{ eks_region }}
+  changed_when: false
+
+- name: Check Kubernetes nodes
+  ansible.builtin.command: >
+    {{ kubectl_bin }} get nodes
+  register: nodes_output
+  changed_when: false
+
+- name: Show nodes
+  ansible.builtin.debug:
+    var: nodes_output.stdout
