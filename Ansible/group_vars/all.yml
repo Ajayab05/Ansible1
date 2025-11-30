@@ -18,7 +18,7 @@ new_nodegroup_desired_size: 2
 new_nodegroup_max_size: 3
 
 # IAM role ARN for worker nodes (must exist in your AWS account)
-new_node_role_arn: "arn:aws:iam::536346448099:role/AmazonEKSNodeRole
+new_node_role_arn: "arn:aws:iam::536346448099:role/AmazonEKSNodeRole"
 
 # Subnets for the nodegroup (must be in the same VPC as the cluster)
 new_nodegroup_subnets:
@@ -29,5 +29,6 @@ new_nodegroup_subnets:
   - "subnet-0f9dfe0eee9ebc82c"
   - "subnet-0a9abd82744f194a1"
   - "subnet-0ecc0011d1c570e48"
+
 
 
