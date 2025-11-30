@@ -6,18 +6,76 @@
     --region {{ eks_region }}
     --query "cluster.version"
     --output text
-  register: cp_ver
+  register: cp_ver_initial
   changed_when: false
 
-- name: Show current and target versions
+- name: Show current and target versions (initial)
   ansible.builtin.debug:
-    msg: "Current: {{ cp_ver.stdout }}, Target: {{ eks_target_version }}"
+    msg: "Current (initial): {{ cp_ver_initial.stdout }}, Target: {{ eks_target_version }}"
 
-- name: Skip control plane upgrade if already on target version
+# If we are already on target version, just skip everything
+- name: Skip upgrade if already on target version
   ansible.builtin.debug:
-    msg: "Cluster already on target version {{ eks_target_version }}, skipping upgrade."
-  when: cp_ver.stdout == eks_target_version
+    msg: "Cluster already on target version {{ eks_target_version }}, skipping control plane upgrade."
+  when: cp_ver_initial.stdout == eks_target_version
 
+# If we are NOT yet on target, first wait for any in-progress updates
+- name: Wait for any in-progress cluster updates to finish
+  ansible.builtin.shell: |
+    set -e
+    CLUSTER="{{ eks_cluster_name }}"
+    REGION="{{ eks_region }}"
+
+    echo "Checking for in-progress updates on cluster $CLUSTER in $REGION..."
+
+    while true; do
+      IDS=$(aws eks list-updates --name "$CLUSTER" --region "$REGION" --query 'updateIds' --output text || echo "")
+      INPROGRESS=0
+
+      if [ -n "$IDS" ]; then
+        for ID in $IDS; do
+          STATUS=$(aws eks describe-update --name "$CLUSTER" --region "$REGION" --update-id "$ID" --query 'update.status' --output text || echo "Unknown")
+          echo "Update $ID status: $STATUS"
+          if [ "$STATUS" = "InProgress" ]; then
+            INPROGRESS=1
+            break
+          fi
+        done
+      fi
+
+      if [ "$INPROGRESS" -eq 0 ]; then
+        echo "No in-progress cluster updates, proceeding."
+        break
+      fi
+
+      echo "Cluster update still in progress, waiting 30s..."
+      sleep 30
+    done
+  when: cp_ver_initial.stdout != eks_target_version
+  changed_when: false
+
+# After waiting, read the version again
+- name: Get EKS control plane version after waiting
+  ansible.builtin.command: >
+    {{ aws_bin }} eks describe-cluster
+    --name {{ eks_cluster_name }}
+    --region {{ eks_region }}
+    --query "cluster.version"
+    --output text
+  register: cp_ver_after_wait
+  changed_when: false
+
+- name: Show current and target versions (after wait)
+  ansible.builtin.debug:
+    msg: "Current (after wait): {{ cp_ver_after_wait.stdout }}, Target: {{ eks_target_version }}"
+
+# If, after waiting, we are now on the target version → don't call update again
+- name: Skip calling update-cluster-version because cluster reached target version
+  ansible.builtin.debug:
+    msg: "Cluster reached target version {{ eks_target_version }} during previous update. Skipping new update call."
+  when: cp_ver_after_wait.stdout == eks_target_version
+
+# Only if still NOT on target do we actually trigger a control plane upgrade
 - name: Trigger EKS control plane upgrade
   ansible.builtin.command: >
     {{ aws_bin }} eks update-cluster-version
@@ -25,12 +83,12 @@
     --region {{ eks_region }}
     --kubernetes-version {{ eks_target_version }}
   register: upgrade_cp
-  when: cp_ver.stdout != eks_target_version
+  when: cp_ver_after_wait.stdout != eks_target_version
 
 - name: Show control plane upgrade output
   ansible.builtin.debug:
     var: upgrade_cp.stderr
-  when: cp_ver.stdout != eks_target_version
+  when: cp_ver_after_wait.stdout != eks_target_version
 
 - name: Wait for EKS control plane to become ACTIVE
   ansible.builtin.command: >
@@ -44,18 +102,18 @@
   retries: 60
   delay: 30
   changed_when: false
-  when: cp_ver.stdout != eks_target_version
+  when: cp_ver_after_wait.stdout != eks_target_version
 
-- name: Confirm control plane version
+- name: Confirm final EKS control plane version
   ansible.builtin.command: >
     {{ aws_bin }} eks describe-cluster
     --name {{ eks_cluster_name }}
     --region {{ eks_region }}
     --query "cluster.version"
     --output text
-  register: final_ver
+  register: cp_ver_final
   changed_when: false
 
-- name: Print new control plane version
+- name: Print final control plane version
   ansible.builtin.debug:
-    msg: "EKS control plane now at version {{ final_ver.stdout }}"
+    msg: "EKS control plane now at version {{ cp_ver_final.stdout }}"
